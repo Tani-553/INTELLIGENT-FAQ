@@ -15,7 +15,7 @@ explains how the answer was obtained. It works fully offline and uses no LLM or 
 - Natural-language question -> logical query -> pyDatalog inference -> answer + reasoning trace
 - Facts stored in `knowledge_base.json`; rules defined in `inference_engine.py`
 - Simple Tkinter GUI (question, answer, reasoning trace)
-- Admin / Knowledge Engineer window: add, edit, delete facts, save, reload, timestamped backup, test logical queries
+- Admin / Knowledge Engineer window: add, edit, delete facts, save, reload, validate, timestamped backup, test logical queries
 - Validation (empty predicate, wrong number of arguments, duplicate facts, rule-derived predicates)
 - Friendly handling of empty questions, unknown questions, broken or missing JSON, and inference errors
 - Medical-advice questions are refused with a clear message
@@ -73,6 +73,15 @@ python main.py
 ```
 
 (On some systems use `python3 main.py`.)
+
+## Run the regression tests
+
+```
+python -m unittest -v
+```
+
+The persistence and administrator tests use temporary knowledge-base files, so
+they do not modify `knowledge_base.json`.
 
 ## Demo admin credentials
 

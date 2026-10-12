@@ -197,8 +197,9 @@ def open_admin_window(parent):
 
     def save_and_reload(new_facts):
         """Write to knowledge_base.json, then reload the inference engine from the file."""
-        kb.save_facts(new_facts)
-        state["facts"] = new_facts
+        validated_facts = kb.validate_facts(new_facts, engine.derived_predicates())
+        kb.save_facts(validated_facts, engine.derived_predicates())
+        state["facts"] = validated_facts
         engine.load_knowledge_base()
         refresh_list()
 
@@ -280,12 +281,19 @@ def open_admin_window(parent):
 
     def reload_clicked():
         try:
-            state["facts"] = kb.load_facts()
+            state["facts"] = kb.validate_facts(kb.load_facts(), engine.derived_predicates())
             count = engine.load_knowledge_base()
             refresh_list()
             show_status("Reloaded {} facts from knowledge_base.json.".format(count))
         except kb.KnowledgeBaseError as err:
             messagebox.showerror("Reload failed", str(err), parent=window)
+
+    def validate_clicked():
+        try:
+            kb.validate_facts(state["facts"], engine.derived_predicates())
+            show_status("Knowledge base is valid ({} facts).".format(len(state["facts"])))
+        except kb.KnowledgeBaseError as err:
+            messagebox.showerror("Validation failed", str(err), parent=window)
 
     def backup_clicked():
         try:
@@ -304,7 +312,8 @@ def open_admin_window(parent):
     tk.Label(window, text="Knowledge Base:", font=LABEL_FONT, bg=ADMIN_BG).pack(anchor="w", padx=14, pady=(8, 0))
     kb_buttons = tk.Frame(window, bg=ADMIN_BG)
     kb_buttons.pack(pady=4)
-    for text, command in [("Save", save_clicked), ("Reload", reload_clicked), ("Backup", backup_clicked)]:
+    for text, command in [("Save", save_clicked), ("Reload", reload_clicked),
+                          ("Validate", validate_clicked), ("Backup", backup_clicked)]:
         make_button(kb_buttons, text, command).pack(side="left", padx=5)
 
     # ---- test inference

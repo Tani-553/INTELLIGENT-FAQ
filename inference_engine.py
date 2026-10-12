@@ -97,7 +97,9 @@ def load_knowledge_base():
     Call this again after every change to the knowledge base.
     Returns the number of facts loaded.
     """
-    facts = kb.load_facts()          # may raise KnowledgeBaseError - old knowledge stays untouched
+    # Validate before clearing pyDatalog so a malformed file cannot replace a
+    # previously working in-memory knowledge base with a partial one.
+    facts = kb.validate_facts(kb.load_facts(), derived_predicates())
     pyDatalog.clear()
     for fact in facts:
         pyDatalog.assert_fact(fact["predicate"], *fact["args"])

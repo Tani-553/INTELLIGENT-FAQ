@@ -116,16 +116,9 @@ def parse_question(question):
 
     # ---- timings
     timing_word = re.search(r"\b(timings?|timing|times?|hours|open|opens|close|closes|when|schedule)\b", q)
-    doctor_name = (
-        _name_after(r"\b(?:when|what time) (?:is|does) (?:dr )?(\w+) (?:available|work)\b", q)
-        or _name_after(r"\b(?:availability|timings?|timing|schedule|hours) (?:of|for) (?:dr )?(\w+)\b", q)
-        or _name_after(r"\b(?:dr )?(\w+) (?:availability|timings?|timing|schedule|hours)\b", q)
-    )
-    if doctor_name:
-        return _result("FIND_DOCTOR_AVAILABILITY", {"doctor": doctor_name},
-                       "doctor_available", [doctor_name, "Timing"])
-    if timing_word and re.search(r"\bdoctors?\b", q):
-        return _result("LIST_DOCTOR_AVAILABILITY", {}, "doctor_available", ["Doctor", "Timing"])
+    # Check named hospital services before the generic doctor patterns below.
+    # Otherwise, words such as "OPD", "visiting", or "pharmacy" can be
+    # mistaken for a doctor's name in questions ending with "timings".
     if re.search(r"\bvisit(?:ing|ors?|s)?\b", q) and timing_word:
         return _result("FIND_VISITING_HOURS", {}, "visiting_hours", [HOSPITAL, "Hours"])
     if re.search(r"\b(opd|outpatient)\b", q) and timing_word:
@@ -136,6 +129,17 @@ def parse_question(question):
         return _result("FIND_LAB_TIMING", {}, "lab_timing", [HOSPITAL, "Timing"])
     if timing_word and re.search(r"\b(hospital|citycare)\b", q):
         return _result("FIND_HOSPITAL_TIMING", {}, "hospital_open", [HOSPITAL, "Timing"])
+
+    doctor_name = (
+        _name_after(r"\b(?:when|what time) (?:is|does) (?:dr )?(\w+) (?:available|work)\b", q)
+        or _name_after(r"\b(?:availability|timings?|timing|schedule|hours) (?:of|for) (?:dr )?(\w+)\b", q)
+        or _name_after(r"\b(?:dr )?(\w+)(?: s)? (?:working )?(?:availability|timings?|timing|schedule|hours)\b", q)
+    )
+    if doctor_name:
+        return _result("FIND_DOCTOR_AVAILABILITY", {"doctor": doctor_name},
+                       "doctor_available", [doctor_name, "Timing"])
+    if timing_word and re.search(r"\bdoctors?\b", q):
+        return _result("LIST_DOCTOR_AVAILABILITY", {}, "doctor_available", ["Doctor", "Timing"])
 
     # ---- lists
     if re.search(r"\bfacilit(?:y|ies)\b", q) and asks_list:

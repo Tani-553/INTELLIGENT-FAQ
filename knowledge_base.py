@@ -87,8 +87,9 @@ def load_facts():
     return facts
 
 
-def save_facts(facts):
+def save_facts(facts, reserved=()):
     """Write the facts to knowledge_base.json (one fact per line, easy to read)."""
+    facts = validate_facts(facts, reserved)
     lines = [json.dumps(fact, ensure_ascii=False) for fact in facts]
     body = ",\n    ".join(lines)
     text = '{\n  "hospital": "%s",\n  "facts": [\n    %s\n  ]\n}\n' % (HOSPITAL_NAME, body)
@@ -99,6 +100,11 @@ def save_facts(facts):
             f.write(text)
         os.replace(temp_path, KB_PATH)            # replace only after a complete write
     except OSError as err:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
         raise KnowledgeBaseError("Could not save knowledge base: {}".format(err))
 
 
@@ -166,6 +172,31 @@ def validate_fact(predicate, args, facts, reserved=(), ignore_index=None):
         if index != ignore_index and existing["predicate"] == predicate and existing["args"] == cleaned:
             raise FactError("This fact already exists: {}".format(fact_to_text(existing)))
     return predicate, cleaned
+
+
+def validate_facts(facts, reserved=()):
+    """Validate and normalize a complete fact list without writing it to disk.
+
+    Each fact is validated against the facts accepted before it, so duplicate
+    entries are detected just as they are in the administrator's Add form.
+    The returned list is safe to pass to :func:`save_facts`.
+    """
+    if not isinstance(facts, list):
+        raise KnowledgeBaseError("Facts must be a list.")
+    cleaned_facts = []
+    for number, fact in enumerate(facts, start=1):
+        if not isinstance(fact, dict):
+            raise KnowledgeBaseError("Fact number {} must be an object.".format(number))
+        if not isinstance(fact.get("predicate"), str) or not isinstance(fact.get("args"), list):
+            raise KnowledgeBaseError(
+                "Fact number {} must contain a string predicate and an args list.".format(number))
+        try:
+            predicate, args = validate_fact(
+                fact.get("predicate"), fact.get("args", []), cleaned_facts, reserved)
+        except FactError as err:
+            raise KnowledgeBaseError("Fact number {} is invalid: {}".format(number, err))
+        cleaned_facts.append({"predicate": predicate, "args": args})
+    return cleaned_facts
 
 
 # ---------------------------------------------------------------- add / edit / delete

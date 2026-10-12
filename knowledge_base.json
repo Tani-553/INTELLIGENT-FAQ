@@ -58,6 +58,7 @@
     {"predicate": "visiting_hours", "args": ["citycare_hospital", "4:00 PM - 7:00 PM"]},
     {"predicate": "pharmacy_timing", "args": ["citycare_hospital", "8:00 AM - 10:00 PM"]},
     {"predicate": "lab_timing", "args": ["citycare_hospital", "7:00 AM - 8:00 PM"]},
-    {"predicate": "emergency_available", "args": ["citycare_hospital", "true"]}
+    {"predicate": "emergency_available", "args": ["citycare_hospital", "true"]},
+    {"predicate": "specializes", "args": ["ravi", "cardiology"]}
   ]
 }
