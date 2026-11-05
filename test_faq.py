@@ -39,6 +39,15 @@ class HospitalFaqQueryTests(unittest.TestCase):
             "doctor_available(D, T) <= doctor(D) & doctor_availability(D, T)",
         )
 
+    def test_keyword_driven_service_intent_uses_existing_fol_query(self):
+        parsed = query_processor.parse_question("services provided by hospital")
+        self.assertEqual(parsed["intent"], "LIST_SERVICES")
+        self.assertEqual(parsed["query"], ("available_service", [query_processor.HOSPITAL, "Service"]))
+        result = reasoning_trace.answer_question("services provided by hospital")
+        self.assertTrue(result["found"], result)
+        self.assertIn("Services provided by CityCare Hospital", result["answer"])
+        self.assertEqual(result["logical_query"], "available_service(citycare_hospital, Service)")
+
     def test_hospital_facility_uses_existing_derived_query(self):
         self.assert_derived_answer(
             "Does the hospital have an ICU?",

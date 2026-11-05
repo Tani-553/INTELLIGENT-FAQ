@@ -16,6 +16,8 @@ Result of parse_question():
 
 import re
 
+import knowledge_base as kb
+
 HOSPITAL = "citycare_hospital"
 
 # ---------------------------------------------------------------- vocabulary
@@ -90,6 +92,148 @@ def _name_after(pattern, q):
     match = re.search(pattern, q)
     if match and match.group(1) not in {"the", "a", "an", "this", "hospital", "doctor"}:
         return match.group(1)
+    return None
+
+
+def _normalize_keyword(value):
+    return re.sub(r"[_\-]+", " ", str(value).lower()).strip()
+
+
+def _phrase_pattern(phrase):
+    phrase = re.escape(phrase)
+    phrase = phrase.replace(r"\ ", r"(?:[ _-]+)")
+    return r"(?<![a-z0-9])" + phrase + r"(?![a-z0-9])"
+
+
+def _has_phrase(q, phrase):
+    phrase = (phrase or "").strip()
+    if not phrase:
+        return False
+    return bool(re.search(_phrase_pattern(phrase), q))
+
+
+def _keyword_score(q, phrases):
+    score = 0
+    for phrase in sorted({p for p in phrases if p}, key=len, reverse=True):
+        if _has_phrase(q, phrase):
+            score += 1 + max(0, len(phrase.split()) - 1)
+    return score
+
+
+def _dynamic_keyword_aliases():
+    aliases = {
+        "doctor": set(),
+        "department": set(),
+        "service": set(),
+        "facility": set(),
+    }
+    try:
+        facts = kb.load_facts()
+    except Exception:
+        return aliases
+
+    for fact in facts:
+        predicate = fact.get("predicate")
+        args = fact.get("args", [])
+        if predicate not in aliases:
+            continue
+        for value in args:
+            normalized = _normalize_keyword(value)
+            if not normalized:
+                continue
+            aliases[predicate].add(normalized)
+            if "_" in value:
+                aliases[predicate].add(value.replace("_", " "))
+    return aliases
+
+
+def _extract_named_entity(q, candidates):
+    for candidate in sorted(candidates, key=len, reverse=True):
+        if _has_phrase(q, candidate):
+            return _normalize_keyword(candidate)
+    return None
+
+
+def _detect_keyword_intent(q, aliases):
+    # Generic hint words are intentionally weak; they are only used alongside a
+    # category-specific keyword or entity name. This keeps generic words such as
+    # "hospital", "show", or "what" from being treated as standalone intent.
+    service_words = {"service", "services", "provide", "provided", "provides", "offering",
+                     "offer", "offers", "offered"}
+    timing_words = {"timing", "timings", "time", "hours", "opening", "open", "closing",
+                    "close", "working hours", "availability", "available", "when", "schedule"}
+    doctor_words = {"doctor", "doctors", "physician", "physicians", "specialist",
+                    "specialists", "surgeon", "surgeons", "dr"}
+    department_words = {"department", "departments", "specialty", "specialties",
+                        "specialization", "specializations"}
+    facility_words = {"facility", "facilities", "mri", "ct scan", "ctscan", "xray",
+                      "x-ray", "lab", "laboratory", "blood bank", "icu", "ambulance"}
+    emergency_words = {"emergency", "urgent care", "casualty", "emergency service"}
+
+    dynamic_service = aliases.get("service", set())
+    dynamic_department = aliases.get("department", set())
+    dynamic_facility = aliases.get("facility", set())
+    dynamic_doctor = aliases.get("doctor", set())
+
+    department_entity = _extract_named_entity(q, set(DEPARTMENT_WORDS.values()) | dynamic_department)
+    facility_entity = _extract_named_entity(q, set(FACILITY_WORDS.values()) | dynamic_facility)
+    service_entity = _extract_named_entity(q, set(SERVICE_WORDS.values()) | dynamic_service)
+    doctor_entity = _extract_named_entity(q, dynamic_doctor)
+
+    dept_score = _keyword_score(q, department_words | dynamic_department)
+    service_score = _keyword_score(q, service_words | dynamic_service)
+    facility_score = _keyword_score(q, facility_words | dynamic_facility)
+    timing_score = _keyword_score(q, timing_words)
+    doctor_score = _keyword_score(q, doctor_words | dynamic_doctor)
+    emergency_score = _keyword_score(q, emergency_words)
+
+    if service_score and (
+            re.search(r"\b(?:provide|provided|provides|offering|offer|offers|offered|service|services)\b", q)
+            or (re.search(r"\b(?:service|services)\b", q) and re.search(r"\b(?:available|offered|provided|provide)\b", q))
+            or re.search(r"\b(?:hospital|citycare)\b", q)
+    ):
+        return _result("LIST_SERVICES", {}, "available_service", [HOSPITAL, "Service"])
+
+    if doctor_score and timing_score and doctor_entity:
+        return _result("FIND_DOCTOR_AVAILABILITY", {"doctor": doctor_entity},
+                       "doctor_available", [doctor_entity, "Timing"])
+
+    if department_entity and doctor_score and re.search(r"\b(?:specializ\w*|specialis\w*|works? in|work\s+in|department)\b", q):
+        return _result("FIND_DOCTOR_BY_SPECIALIZATION", {"department": department_entity},
+                       "specializes", ["Doctor", department_entity])
+
+    if facility_entity and (re.search(r"\b(?:hospital|citycare)\b", q) or re.search(r"\b(?:have|has|available|provide|provides|offering|offer)\b", q)):
+        if re.search(r"\b(?:list|show|which|what|all)\b", q):
+            return _result("LIST_FACILITIES", {}, "available_facility", [HOSPITAL, "Facility"])
+        return _result("CHECK_FACILITY", {"facility": facility_entity},
+                       "available_facility", [HOSPITAL, facility_entity])
+
+    if re.search(r"\b(?:opd|outpatient)\b", q) and timing_score:
+        return _result("FIND_OPD_TIMING", {}, "opd_timing", [HOSPITAL, "Timing"])
+
+    if re.search(r"\b(?:hospital|citycare)\b", q) and timing_score:
+        return _result("FIND_HOSPITAL_TIMING", {}, "hospital_open", [HOSPITAL, "Timing"])
+
+    if dept_score and re.search(r"\b(?:list|show|which|what|all|available)\b", q):
+        return _result("LIST_DEPARTMENTS", {}, "department", ["Department"])
+
+    if emergency_score and re.search(r"\b(?:service|services|available|help)\b", q):
+        return _result("CHECK_EMERGENCY", {}, "emergency_ready", [HOSPITAL])
+
+    if doctor_entity and re.search(r"\b(?:available|availability|hours|timing|schedule|visit|visiting)\b", q):
+        return _result("FIND_DOCTOR_AVAILABILITY", {"doctor": doctor_entity},
+                       "doctor_available", [doctor_entity, "Timing"])
+
+    if facility_entity and re.search(r"\b(?:list|show|which|what|all)\b", q):
+        return _result("LIST_FACILITIES", {}, "available_facility", [HOSPITAL, "Facility"])
+
+    if service_entity and re.search(r"\b(?:list|show|which|what|all)\b", q):
+        return _result("LIST_SERVICES", {}, "available_service", [HOSPITAL, "Service"])
+
+    if department_entity and re.search(r"\b(?:doctors?|specialist|physician|surgeon)\b", q):
+        return _result("FIND_DOCTOR_BY_SPECIALIZATION", {"department": department_entity},
+                       "specializes", ["Doctor", department_entity])
+
     return None
 
 
@@ -203,5 +347,9 @@ def parse_question(question):
         if match and len(match.group(1).split()) <= 3:
             thing = match.group(1).strip().replace("-", "_").replace(" ", "_")
             return _result("CHECK_FACILITY", {"facility": thing}, "available_facility", [HOSPITAL, thing])
+
+    keyword_intent = _detect_keyword_intent(q, _dynamic_keyword_aliases())
+    if keyword_intent is not None:
+        return keyword_intent
 
     return _unknown()
